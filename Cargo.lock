@@ -614,9 +614,9 @@ checksum = "e86697c916019a8588c99b5fac3cead74ec0b4b819707a682fd4d23fa0ce1ba1"
 
 [[package]]
 name = "samsa"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be4d757dced2c70586083c5b6f1e08972b929f0ffdd212132bc2e4fe05144922"
+checksum = "d22d305ec926dc34905ec369dc6d85d023f6ae25bf9023158bf2372fefec5fea"
 dependencies = [
  "async-stream",
  "bytes",

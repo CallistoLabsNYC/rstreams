@@ -48,6 +48,7 @@ async fn main() -> Result<(), ()> {
                         partition_id,
                         key: Some(Bytes::copy_from_slice(filename.as_bytes())),
                         value: Some(Bytes::copy_from_slice(word.as_bytes())),
+                        headers: vec![]
                     })
                     .await;
 

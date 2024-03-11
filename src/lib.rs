@@ -9,18 +9,8 @@ use nom::AsBytes;
 use serde::{de::DeserializeOwned, Serialize};
 use std::time::Duration;
 use tokio_stream::{StreamExt,Stream};
-use samsa::prelude::PartitionOffsets;
+use samsa::prelude::{ConsumeMessage, PartitionOffsets};
 
-/// Common stream message format.
-#[derive(Clone, Debug, PartialEq)]
-pub struct StreamMessage {
-    pub key: Bytes,
-    pub value: Bytes,
-    pub offset: usize,
-    pub timestamp: usize,
-    pub topic_name: Bytes,
-    pub partition_index: i32,
-}
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct ParsedMessage<T: Clone> {
@@ -48,8 +38,8 @@ pub fn within_window(a: i64, b: i64, window: Duration) -> bool {
 }
 
 pub fn into_flat_stream(
-    stream: impl Stream<Item = samsa::prelude::Result<(Vec<StreamMessage>, PartitionOffsets)>>,
-) -> impl Stream<Item = StreamMessage> {
+    stream: impl Stream<Item = samsa::prelude::Result<(Vec<ConsumeMessage>, PartitionOffsets)>>,
+) -> impl Stream<Item = ConsumeMessage> {
     futures::StreamExt::flat_map(
         stream
             .filter(|batch| batch.is_ok())
