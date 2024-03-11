@@ -8,6 +8,19 @@ use bytes::Bytes;
 use nom::AsBytes;
 use serde::{de::DeserializeOwned, Serialize};
 use std::time::Duration;
+use tokio_stream::{StreamExt,Stream};
+use samsa::prelude::PartitionOffsets;
+
+/// Common stream message format.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StreamMessage {
+    pub key: Bytes,
+    pub value: Bytes,
+    pub offset: usize,
+    pub timestamp: usize,
+    pub topic_name: Bytes,
+    pub partition_index: i32,
+}
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct ParsedMessage<T: Clone> {
@@ -32,6 +45,18 @@ where
 pub fn within_window(a: i64, b: i64, window: Duration) -> bool {
     let t = window.as_millis() as i64;
     (a - b).abs() < t
+}
+
+pub fn into_flat_stream(
+    stream: impl Stream<Item = samsa::prelude::Result<(Vec<StreamMessage>, PartitionOffsets)>>,
+) -> impl Stream<Item = StreamMessage> {
+    futures::StreamExt::flat_map(
+        stream
+            .filter(|batch| batch.is_ok())
+            .map(|batch| batch.unwrap())
+            .map(|(batch, _)| batch),
+        futures::stream::iter,
+    )
 }
 
 #[test]
