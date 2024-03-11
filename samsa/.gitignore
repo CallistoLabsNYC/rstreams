@@ -1,7 +1,0 @@
-/target
-/demo/.env
-/demo/bin
-/demo/lib
-/demo/include
-/demo/pyvenv.cfg
-/demo/www/node_modules
