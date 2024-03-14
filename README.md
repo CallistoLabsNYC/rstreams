@@ -4,10 +4,10 @@ A lightweight, rust-native, stream processing library in the spirit of Kstreams.
 ## Current supported features
 
 ### Stateless operators
-Everything supported by these two traits:
-https://docs.rs/tokio-stream/0.1.14/tokio_stream/trait.StreamExt.html
-https://docs.rs/futures/latest/futures/stream/trait.StreamExt.html
-and anything that extends those traits...
+Everything supported by the
+[tokio-stream/StreamExt](https://docs.rs/tokio-stream/0.1.14/tokio_stream/trait.StreamExt.html) and
+[futures/StreamExt](https://docs.rs/futures/latest/futures/stream/trait.StreamExt.html)
+traits, and anything that extends those traits...
 - filter
 - map
 - fold
@@ -29,3 +29,9 @@ and anything that extends those traits...
 - Persistence
 - Left join
 - Rtables
+
+## Building
+
+```shell
+$ make
+```
