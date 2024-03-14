@@ -2,9 +2,8 @@ use bytes::Bytes;
 use fork_stream::StreamExt as _;
 use nom::AsBytes;
 use rstreams::{
-    into_flat_stream,
     actor::Actor,
-    from_bytes, to_bytes,
+    from_bytes, into_flat_stream, to_bytes,
     window::{hopping_window, lag_window},
     ParsedMessage,
 };
@@ -109,7 +108,6 @@ impl StratCandle {
     }
 }
 
-
 #[tokio::main]
 async fn main() -> Result<(), ()> {
     tracing_subscriber::fmt()
@@ -197,7 +195,7 @@ async fn main() -> Result<(), ()> {
                     value: Some(to_bytes(message.value).unwrap()),
                     topic: topic.to_string(),
                     partition_id: 0,
-                    headers: vec![]
+                    headers: vec![],
                 }),
         )
         .await;
@@ -230,7 +228,7 @@ async fn main() -> Result<(), ()> {
                         value: Some(to_bytes(message.value).unwrap()),
                         topic: topic.to_string(),
                         partition_id: 0,
-                        headers: vec![]
+                        headers: vec![],
                     }),
             )
             .await;
