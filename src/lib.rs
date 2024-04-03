@@ -6,11 +6,10 @@ pub mod window;
 
 use bytes::Bytes;
 use nom::AsBytes;
+use samsa::prelude::{ConsumeMessage, PartitionOffsets};
 use serde::{de::DeserializeOwned, Serialize};
 use std::time::Duration;
-use tokio_stream::{StreamExt,Stream};
-use samsa::prelude::{ConsumeMessage, PartitionOffsets};
-
+use tokio_stream::{Stream, StreamExt};
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct ParsedMessage<T: Clone> {
