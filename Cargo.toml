@@ -10,15 +10,15 @@ keywords = ["kafka", "redpanda", "confluent", "streaming"]
 
 [dependencies]
 async-stream = "0.3.5"
-bytes = "1.5.0"
+bytes = "1.6.0"
 futures = "0.3.29"
 nom = "7.1.3"
-redb = "1.4.0"
-samsa = "0.1.2"
+redb = "2.0.0"
+samsa = "0.1.3"
 serde = {version = "1.0.193", features = ["derive"] }
-serde_json = "1.0.108"
-tokio = "1.35.0"
-tokio-stream = "0.1.14"
+serde_json = "1.0.115"
+tokio = "1.37.0"
+tokio-stream = "0.1.15"
 tracing = "0.1.40"
 
 [dev-dependencies]

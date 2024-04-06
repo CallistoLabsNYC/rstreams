@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use nom::AsBytes;
-use redb::{Database, Error, ReadableTable, TableDefinition};
+use redb::{Database, Error, TableDefinition};
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{from_bytes, to_bytes};
