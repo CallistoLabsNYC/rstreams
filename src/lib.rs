@@ -6,9 +6,12 @@ pub mod window;
 
 use bytes::Bytes;
 use nom::AsBytes;
-use samsa::prelude::{ConsumeMessage, PartitionOffsets};
 use serde::{de::DeserializeOwned, Serialize};
 use std::time::Duration;
+
+#[cfg(feature = "kafka")]
+use samsa::prelude::{ConsumeMessage, PartitionOffsets};
+#[cfg(feature = "kafka")]
 use tokio_stream::{Stream, StreamExt};
 
 #[derive(Clone, PartialEq, Debug)]
@@ -36,6 +39,7 @@ pub fn within_window(a: i64, b: i64, window: Duration) -> bool {
     (a - b).abs() < t
 }
 
+#[cfg(feature = "kafka")]
 pub fn into_flat_stream(
     stream: impl Stream<Item = samsa::prelude::Result<(Vec<ConsumeMessage>, PartitionOffsets)>>,
 ) -> impl Stream<Item = ConsumeMessage> {
