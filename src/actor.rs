@@ -1,7 +1,7 @@
+use async_stream::stream;
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::{Stream, StreamExt};
 use tracing::instrument;
-use async_stream::stream;
 
 pub struct Actor;
 
@@ -11,7 +11,9 @@ impl Actor {
         buffer: usize,
         name: &'static str,
     ) -> impl Stream<Item = T>
-    where T: std::fmt::Debug + std::marker::Send + 'static {
+    where
+        T: std::fmt::Debug + std::marker::Send + 'static,
+    {
         let (sender, mut receiver) = channel(buffer);
 
         // execute stream in background task
