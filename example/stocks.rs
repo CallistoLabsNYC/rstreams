@@ -5,12 +5,13 @@ use rstreams::{
     actor::Actor,
     from_bytes, into_flat_stream, to_bytes,
     window::{hopping_window, lag_window},
-    ParsedMessage,
+    Dated, ParsedMessage,
 };
 use samsa::prelude::{ConsumerBuilder, ProduceMessage, ProducerBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
+use tokio_stream::Stream;
 use tokio_stream::StreamExt as _;
 
 /*
@@ -62,6 +63,12 @@ impl Candle {
         } else {
             Color::Red
         }
+    }
+}
+
+impl Dated for Candle {
+    fn timestamp(&self) -> i64 {
+        self.timestamp
     }
 }
 
@@ -171,10 +178,15 @@ async fn main() -> Result<(), ()> {
             parser_stream,
             Duration::from_secs(seconds),
             Duration::from_secs(seconds),
-            |e| e.timestamp,
         )
-        .map(|message| aggregate_candles(message.key, message.value.0, message.value.1))
-        .filter(|message| message.value.volume != 0.0),
+        .filter_map(|message| {
+            let message = aggregate_candles(message.key, message.value.0, message.value.1);
+            if message.value.volume != 0.0 {
+                Some(message)
+            } else {
+                None
+            }
+        }),
         1,
         topic,
     )
@@ -203,10 +215,15 @@ async fn main() -> Result<(), ()> {
                 stream,
                 Duration::from_secs(seconds),
                 Duration::from_secs(seconds),
-                |e| e.timestamp,
             )
-            .map(|message| aggregate_candles(message.key, message.value.0, message.value.1))
-            .filter(|message| message.value.volume != 0.0),
+            .filter_map(|message| {
+                let message = aggregate_candles(message.key, message.value.0, message.value.1);
+                if message.value.volume != 0.0 {
+                    Some(message)
+                } else {
+                    None
+                }
+            }),
             1,
             topic,
         )

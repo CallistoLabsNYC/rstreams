@@ -10,8 +10,7 @@ impl Actor {
         stream: impl Stream<Item = T> + std::marker::Send + 'static,
         buffer: usize,
         name: &'static str,
-    ) -> impl Stream<Item = T>
-    {
+    ) -> impl Stream<Item = T> {
         let (sender, mut receiver) = channel(buffer);
 
         // execute stream in background task

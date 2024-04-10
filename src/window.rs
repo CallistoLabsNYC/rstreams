@@ -2,7 +2,7 @@ use std::{collections::HashMap, time::Duration};
 
 use tokio_stream::{Stream, StreamExt};
 
-use crate::ParsedMessage;
+use crate::{Dated, ParsedMessage};
 
 pub fn lag_window<A>(
     stream: impl Stream<Item = ParsedMessage<A>> + 'static,
@@ -40,11 +40,9 @@ where
 pub fn tumbling_window<A, F>(
     stream: impl Stream<Item = ParsedMessage<A>> + 'static,
     s: Duration,
-    timestamp_accessor: F,
 ) -> impl Stream<Item = ParsedMessage<Vec<A>>>
 where
-    F: (Fn(&A) -> i64),
-    A: Clone + 'static,
+    A: Clone + Dated + 'static,
 {
     async_stream::stream! {
         let mut stream_store = HashMap::new();
@@ -58,8 +56,8 @@ where
                 }
                 Some(events) => {
                     if !events.is_empty() {
-                        let earliest_window_index = timestamp_accessor(&events[0]) / (s.as_millis() as i64);
-                        let latest_window_index = timestamp_accessor(&new_event.value) / (s.as_millis() as i64);
+                        let earliest_window_index = events[0].timestamp() / (s.as_millis() as i64);
+                        let latest_window_index = &new_event.value.timestamp() / (s.as_millis() as i64);
                         // if we have left the window
                         if earliest_window_index != latest_window_index {
                             // produce our array of fields in the window
@@ -90,15 +88,13 @@ where
 }
 
 #[must_use = "stream does nothing by itself"]
-pub fn hopping_window<A, F>(
+pub fn hopping_window<A>(
     stream: impl Stream<Item = ParsedMessage<A>> + 'static,
     s: Duration,
     h: Duration,
-    timestamp_accessor: F,
 ) -> impl Stream<Item = ParsedMessage<(i64, Vec<A>)>>
 where
-    F: (Fn(&A) -> i64),
-    A: Clone + 'static,
+    A: Clone + Dated + 'static,
 {
     async_stream::stream! {
         let mut stream_store = HashMap::new();
@@ -118,12 +114,12 @@ where
                     events.push(new_event.clone().value);
                     if events.len() > 1 {
                         let mut working_window_time = match time_store.get(&new_event.key) {
-                            None => timestamp_accessor(&events[0]),
+                            None => events[0].timestamp(),
                             Some(working_window_time) => *working_window_time,
                         };
 
                         let earliest_window_index = working_window_time / (s.as_millis() as i64);
-                        let latest_event_time = timestamp_accessor(&new_event.value);
+                        let latest_event_time = new_event.value.timestamp();
                         let latest_window_index = latest_event_time / (s.as_millis() as i64);
 
                         // if we have left the window
@@ -137,7 +133,7 @@ where
                                 // tracing::info!("active window {} to {}", working_window_time, working_window_time + (s.as_millis() as i64));
                                 // events.sort_by(|a, b| timestamp_accessor(a).cmp(&timestamp_accessor(b)));
                                 let events_in_window = events.iter().filter(|event| {
-                                    let event_time = timestamp_accessor(event);
+                                    let event_time = event.timestamp();
                                     // tracing::info!("{} is {}",
                                     //     event_time,
                                     //     event_time >= working_window_time && event_time < working_window_time + (s.as_millis() as i64)
@@ -159,7 +155,7 @@ where
                                 // keep anything that could be in the next window
                                 // tracing::info!("keeping above {time}");
                                 events.retain(|event| {
-                                    let event_time = timestamp_accessor(event);
+                                    let event_time = event.timestamp();
                                     // tracing::info!("{} is {}", event_time, event_time >= working_window_time);
                                     event_time >= working_window_time
                                 });
@@ -214,6 +210,12 @@ mod test {
     //     // assert_eq!(windowed.next().await, Some(to_messages(vec![13,14,11,11])));
     // }
 
+    impl Dated for i64 {
+        fn timestamp(&self) -> i64 {
+            *self
+        }
+    }
+
     #[tokio::test]
     async fn tumbling_as_hopping() {
         let stream = futures::stream::iter(vec![
@@ -234,12 +236,7 @@ mod test {
             to_message(14),
         ]);
 
-        let windowed = hopping_window(
-            stream,
-            Duration::from_millis(3),
-            Duration::from_millis(3),
-            |a| *a,
-        );
+        let windowed = hopping_window(stream, Duration::from_millis(3), Duration::from_millis(3));
         tokio::pin!(windowed);
 
         assert_eq!(windowed.next().await, Some(to_messages((0, vec![0, 1]))));
@@ -276,12 +273,7 @@ mod test {
             to_message(20),
         ]);
 
-        let windowed = hopping_window(
-            stream,
-            Duration::from_millis(3),
-            Duration::from_millis(1),
-            |a| *a,
-        );
+        let windowed = hopping_window(stream, Duration::from_millis(3), Duration::from_millis(1));
         tokio::pin!(windowed);
 
         assert_eq!(windowed.next().await, Some(to_messages((0, vec![0, 1,]))));
