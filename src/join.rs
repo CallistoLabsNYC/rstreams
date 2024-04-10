@@ -141,6 +141,8 @@ where
 mod test {
     use std::{collections::HashMap, time::Duration};
 
+    use crate::store::Store;
+
     use super::*;
 
     // test from https://www.confluent.io/blog/crossing-streams-joins-apache-kafka/
@@ -327,6 +329,48 @@ mod test {
                 (("d".to_string(), 15), ("d".to_string(), 14))
             ))
         );
+    }
+
+    #[tokio::test]
+    async fn test_inner_join_with_persistence() {
+        let stream_a = futures::stream::iter(vec![
+            to_key("a", 0),
+            to_key("b", 1),
+            to_key("c", 3),
+            to_key("d", 4),
+            to_key("f", 6),
+            to_key("f", 6),
+            to_key("g", 8),
+        ]);
+
+        let stream_b = futures::stream::iter(vec![
+            to_key("a", 1),
+            to_key("c", 2),
+            to_key("e", 5),
+            to_key("f", 7),
+            to_key("g", 9),
+            to_key("g", 9),
+            to_key("b", 11),
+        ]);
+
+        let joined_stream = inner_join_streams(
+            stream_a,
+            stream_b,
+            Duration::from_millis(10),
+            |a, b| (*a, *b),
+            Store::new("test-a").unwrap(),
+            Store::new("test-b").unwrap(),
+        )
+        .await;
+
+        tokio::pin!(joined_stream);
+
+        assert_eq!(joined_stream.next().await, Some(to_joined("a", (0, 1))));
+        assert_eq!(joined_stream.next().await, Some(to_joined("c", (3, 2))));
+        assert_eq!(joined_stream.next().await, Some(to_joined("f", (6, 7))));
+        assert_eq!(joined_stream.next().await, Some(to_joined("f", (6, 7))));
+        assert_eq!(joined_stream.next().await, Some(to_joined("g", (8, 9))));
+        assert_eq!(joined_stream.next().await, Some(to_joined("g", (8, 9))));
     }
 
     fn to_message(value: String, timestamp: i64) -> ParsedMessage<(String, i64)> {

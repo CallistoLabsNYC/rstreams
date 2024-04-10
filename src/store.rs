@@ -23,11 +23,14 @@ impl<'a> Store<'a> {
         let table = TableDefinition::new(name);
         let db = Database::create(format!("{}.redb", name)).unwrap();
 
-        Ok(Self { table, db })
-    }
-}
+        // need to write to initialize the DB I'm told
+        // https://github.com/cberner/redb/issues/731
+        let mut store = Self { table, db };
+        store.insert("__init__", "__init__")?;
 
-impl<'a> KVStore for Store<'a> {
+        Ok(store)
+    }
+
     fn get<T>(&self, key: &str) -> Result<Option<T>, Error>
     where
         T: DeserializeOwned,
@@ -57,6 +60,22 @@ impl<'a> KVStore for Store<'a> {
         }
         write_txn.commit().unwrap();
         Ok(())
+    }
+}
+
+impl<'a> KVStore for Store<'a> {
+    fn get<T>(&self, key: &str) -> Result<Option<T>, Error>
+    where
+        T: DeserializeOwned,
+    {
+        self.get(key)
+    }
+
+    fn insert<T>(&mut self, key: &str, value: T) -> Result<(), Error>
+    where
+        T: Serialize,
+    {
+        self.insert(key, value)
     }
 }
 
