@@ -51,6 +51,9 @@ pub fn into_flat_stream(
     )
 }
 
+pub trait Dated {
+    fn timestamp(&self) -> i64;
+}
 
 #[test]
 fn test_fuzzy_time_compare() {
