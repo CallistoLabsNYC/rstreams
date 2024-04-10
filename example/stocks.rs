@@ -142,9 +142,7 @@ async fn main() -> Result<(), ()> {
     // .throttle(Duration::from_secs(1));
 
     // read in 1 batch at a time
-    let stock_batches = Actor::spawn(consumer_stream, 1, "stocks-consumer")
-        .await
-        .to_stream();
+    let stock_batches = Actor::spawn(consumer_stream, 1, "stocks-consumer").await;
 
     let parser_stream = into_flat_stream(stock_batches).map(|record| ParsedMessage::<Candle> {
         key: std::str::from_utf8(record.key.as_bytes())
@@ -181,7 +179,6 @@ async fn main() -> Result<(), ()> {
         topic,
     )
     .await
-    .to_stream()
     .fork();
 
     ProducerBuilder::new(bootstrap_addrs.clone(), vec![topic.to_string()])
@@ -214,7 +211,6 @@ async fn main() -> Result<(), ()> {
             topic,
         )
         .await
-        .to_stream()
         .fork();
 
         ProducerBuilder::new(bootstrap_addrs.clone(), vec![topic.to_string()])
