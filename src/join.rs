@@ -13,7 +13,7 @@ enum Either<L, R> {
 }
 
 //
-// This funciton joins 2 streams. It uses a keys with a simple time window 
+// This funciton joins 2 streams. It uses a keys with a simple time window
 // to match up the stream values. If a message with key A comes in on a stream,
 // we yield all A messages from the other stream that are within the window.
 //

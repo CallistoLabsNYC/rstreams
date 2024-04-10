@@ -1,5 +1,5 @@
+use serde::{de::DeserializeOwned, Serialize};
 use std::time::Duration;
-use serde::{Serialize, de::DeserializeOwned};
 use tokio_stream::{Stream, StreamExt};
 
 use crate::{store::KVStore, ParsedMessage};
@@ -178,8 +178,8 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::{collections::HashMap, time::Duration};
     use super::*;
+    use std::{collections::HashMap, time::Duration};
 
     // #[tokio::test]
     // async fn tumbling() {
@@ -243,7 +243,7 @@ mod test {
             Duration::from_millis(3),
             |a| *a,
             HashMap::new(),
-            HashMap::new()
+            HashMap::new(),
         );
         tokio::pin!(windowed);
 
@@ -287,7 +287,7 @@ mod test {
             Duration::from_millis(1),
             |a| *a,
             HashMap::new(),
-            HashMap::new()
+            HashMap::new(),
         );
         tokio::pin!(windowed);
 
