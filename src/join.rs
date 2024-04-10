@@ -15,7 +15,7 @@ enum JoinMessage<A, B> {
     B(B),
 }
 
-pub async fn inner_join_streams_store<A, B, F>(
+pub async fn inner_join_streams<A, B, F>(
     stream_a: impl Stream<Item = ParsedMessage<A>> + 'static + std::marker::Send,
     stream_b: impl Stream<Item = ParsedMessage<B>> + 'static + std::marker::Send,
     high_water_mark: Duration,
@@ -26,8 +26,8 @@ pub async fn inner_join_streams_store<A, B, F>(
 ) -> impl Stream<Item = ParsedMessage<(A, B)>>
 where
     F: (Fn(&A, &B) -> (i64, i64)),
-    A: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static + std::marker::Copy,
-    B: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static + std::marker::Copy,
+    A: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static,
+    B: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static,
 {
     let (sender, mut receiver) = tokio::sync::mpsc::channel(2);
     let sender_clone = sender.clone();
@@ -143,125 +143,6 @@ where
     }
 }
 
-pub async fn inner_join_streams<A, B, F>(
-    stream_a: impl Stream<Item = ParsedMessage<A>> + 'static + std::marker::Send,
-    stream_b: impl Stream<Item = ParsedMessage<B>> + 'static + std::marker::Send,
-    high_water_mark: Duration,
-    timestamp_accessor: F,
-) -> impl Stream<Item = ParsedMessage<(A, B)>>
-where
-    F: (Fn(&A, &B) -> (i64, i64)),
-    A: Clone + std::marker::Send + 'static,
-    B: Clone + std::marker::Send + 'static,
-{
-    let mut stream_store_a: HashMap<String, Vec<A>> = HashMap::new();
-    let mut stream_store_b: HashMap<String, Vec<B>> = HashMap::new();
-
-    let (sender, mut receiver) = tokio::sync::mpsc::channel(2);
-    let sender_clone = sender.clone();
-
-    // process B
-    tokio::spawn(async move {
-        tokio::pin!(stream_b);
-        while let Some(b) = stream_b.next().await {
-            if sender.send(JoinMessage::B(b)).await.is_err() {
-                tracing::warn!("B Side of join hung up channel");
-            }
-        }
-    });
-
-    // process A
-    tokio::spawn(async move {
-        tokio::pin!(stream_a);
-        while let Some(a) = stream_a.next().await {
-            if sender_clone.send(JoinMessage::A(a)).await.is_err() {
-                tracing::warn!("A Side of join hung up channel");
-            }
-        }
-    });
-
-    stream! {
-        while let Some(message) = receiver.recv().await {
-            match message {
-                JoinMessage::A(a) => {
-                    // insert into A store
-                    match stream_store_a.get_mut(&a.key) {
-                        None => {
-                            stream_store_a.insert(a.clone().key, vec![a.clone().value]);
-                        }
-                        Some(a_events) => {
-                            a_events.push(a.clone().value);
-                        }
-                    }
-
-                    // check against all Bs
-                    if let Some(b_events) = stream_store_b.get_mut(&a.key) {
-                        // prune step
-                        b_events.retain(|b| {
-                            let (a_timestamp, b_timestamp) = timestamp_accessor(&a.value, b);
-                            within_window(b_timestamp, a_timestamp, high_water_mark)
-                                || a_timestamp < b_timestamp
-                        });
-                        for b in b_events.iter() {
-                            let (a_timestamp, b_timestamp) = timestamp_accessor(&a.value, b);
-
-                            if within_window(b_timestamp, a_timestamp, high_water_mark) {
-                                yield ParsedMessage {
-                                    key: a.key.to_string(),
-                                    value: (a.value.clone(), b.clone())
-                                }
-                            }
-
-                            if b_timestamp > a_timestamp
-                                && !within_window(b_timestamp, a_timestamp, high_water_mark)
-                            {
-                                break;
-                            }
-                        }
-                    }
-                },
-                JoinMessage::B(b) => {
-                        // insert into B store
-                        match stream_store_b.get_mut(&b.key) {
-                            None => {
-                                stream_store_b.insert(b.clone().key, vec![b.value.clone()]);
-                            }
-                            Some(b_events) => {
-                                b_events.push(b.value.clone());
-                            }
-                        }
-
-                        // check against all As
-                        if let Some(a_events) = stream_store_a.get_mut(&b.clone().key) {
-                            a_events.retain(|a| {
-                                let (a_timestamp, b_timestamp) = timestamp_accessor(a, &b.value);
-                                within_window(b_timestamp, a_timestamp, high_water_mark)
-                                    || a_timestamp > b_timestamp
-                            });
-                            for a in a_events.clone() {
-                                let (a_timestamp, b_timestamp) = timestamp_accessor(&a, &b.value);
-
-                                if within_window(b_timestamp, a_timestamp, high_water_mark) {
-                                    yield ParsedMessage {
-                                        key: b.clone().key,
-                                        value: (a.clone(), b.value.clone())
-                                    }
-                                }
-
-                                if a_timestamp > b_timestamp
-                                    && !within_window(b_timestamp, a_timestamp, high_water_mark)
-                                {
-                                    break;
-                                }
-                            }
-                        }
-
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::time::Duration;
@@ -291,7 +172,7 @@ mod test {
             to_key("b", 11),
         ]);
 
-        let joined_stream = inner_join_streams_store(
+        let joined_stream = inner_join_streams(
             stream_a,
             stream_b,
             Duration::from_millis(10),
@@ -328,11 +209,16 @@ mod test {
             to_message("d".to_string(), 14),
         ]);
 
-        let joined_stream =
-            inner_join_streams(stream_a, stream_b, Duration::from_millis(1000), |a, b| {
-                (a.1, b.1)
-            })
-            .await;
+        let joined_stream = inner_join_streams(
+            stream_a,
+            stream_b,
+            Duration::from_millis(1000),
+            |a, b| (a.1, b.1),
+            "tester-stores",
+            HashMap::new(),
+            HashMap::new(),
+        )
+        .await;
 
         tokio::pin!(joined_stream);
 
