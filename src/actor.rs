@@ -6,13 +6,11 @@ use tracing::instrument;
 pub struct Actor;
 
 impl Actor {
-    pub async fn spawn<T>(
+    pub async fn spawn<T: Clone + std::fmt::Debug + std::marker::Send + 'static>(
         stream: impl Stream<Item = T> + std::marker::Send + 'static,
         buffer: usize,
         name: &'static str,
     ) -> impl Stream<Item = T>
-    where
-        T: std::fmt::Debug + std::marker::Send + 'static,
     {
         let (sender, mut receiver) = channel(buffer);
 
