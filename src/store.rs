@@ -60,7 +60,7 @@ impl<'a> KVStore for Store<'a> {
     }
 }
 
-impl<'a> KVStore for HashMap<String, Vec<u8>> {
+impl KVStore for HashMap<String, Vec<u8>> {
     fn get<T>(&self, key: &str) -> Result<Option<T>, Error>
     where
         T: DeserializeOwned,
