@@ -291,11 +291,16 @@ mod test {
             to_key("b", 11),
         ]);
 
-        let joined_stream =
-            inner_join_streams(stream_a, stream_b, Duration::from_millis(10), |a, b| {
-                (*a, *b)
-            })
-            .await;
+        let joined_stream = inner_join_streams_store(
+            stream_a,
+            stream_b,
+            Duration::from_millis(10),
+            |a, b| (*a, *b),
+            "tester-stores",
+            HashMap::new(),
+            HashMap::new(),
+        )
+        .await;
 
         tokio::pin!(joined_stream);
 
