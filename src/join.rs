@@ -1,14 +1,11 @@
 // use std::collections::HashMap;
 use serde::{de::DeserializeOwned, Serialize};
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use async_stream::stream;
 use tokio_stream::{Stream, StreamExt};
 
-use crate::{
-    store::{KVStore, Store},
-    within_window, ParsedMessage,
-};
+use crate::{store::KVStore, within_window, ParsedMessage};
 
 enum JoinMessage<A, B> {
     A(A),
@@ -20,7 +17,6 @@ pub async fn inner_join_streams<A, B, F>(
     stream_b: impl Stream<Item = ParsedMessage<B>> + 'static + std::marker::Send,
     high_water_mark: Duration,
     timestamp_accessor: F,
-    name: &'static str,
     mut stream_store_a: impl KVStore,
     mut stream_store_b: impl KVStore,
 ) -> impl Stream<Item = ParsedMessage<(A, B)>>
@@ -53,8 +49,6 @@ where
     });
 
     stream! {
-        let a_name = format!("{}-a", name);
-        let b_name = format!("{}-b", name);
         // let mut stream_store_a = Store::new(&a_name).unwrap();
         // let mut stream_store_b = Store::new(&b_name).unwrap();
 
@@ -145,7 +139,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::time::Duration;
+    use std::{collections::HashMap, time::Duration};
 
     use super::*;
 
@@ -177,7 +171,6 @@ mod test {
             stream_b,
             Duration::from_millis(10),
             |a, b| (*a, *b),
-            "tester-stores",
             HashMap::new(),
             HashMap::new(),
         )
@@ -214,7 +207,6 @@ mod test {
             stream_b,
             Duration::from_millis(1000),
             |a, b| (a.1, b.1),
-            "tester-stores",
             HashMap::new(),
             HashMap::new(),
         )

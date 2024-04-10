@@ -79,4 +79,3 @@ impl<'a> KVStore for HashMap<String, Vec<u8>> {
         Ok(())
     }
 }
-
