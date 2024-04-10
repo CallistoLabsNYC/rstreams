@@ -1,9 +1,17 @@
-use bytes::Bytes;
-use nom::AsBytes;
+use std::collections::HashMap;
+
 use redb::{Database, Error, TableDefinition};
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::{from_bytes, to_bytes};
+pub trait KVStore {
+    fn get<T>(&self, key: &str) -> Result<Option<T>, Error>
+    where
+        T: DeserializeOwned;
+
+    fn insert<T>(&mut self, key: &str, value: T) -> Result<(), Error>
+    where
+        T: Serialize;
+}
 
 pub struct Store<'a> {
     table: TableDefinition<'a, &'static str, &'static [u8]>,
@@ -17,8 +25,10 @@ impl<'a> Store<'a> {
 
         Ok(Self { table, db })
     }
+}
 
-    pub fn get<T>(&self, key: &str) -> Result<Option<T>, Error>
+impl<'a> KVStore for Store<'a> {
+    fn get<T>(&self, key: &str) -> Result<Option<T>, Error>
     where
         T: DeserializeOwned,
     {
@@ -28,13 +38,13 @@ impl<'a> Store<'a> {
             Err(err) => Err(err.into()),
             Ok(optional_value) => match optional_value {
                 None => Ok(None),
-                Some(v) => Ok(Some(from_bytes(Bytes::copy_from_slice(v.value())).unwrap())),
+                Some(v) => Ok(Some(serde_json::from_slice(v.value()).unwrap())),
             },
         };
         x
     }
 
-    pub fn insert<T>(&mut self, key: &str, value: T) -> Result<(), Error>
+    fn insert<T>(&mut self, key: &str, value: T) -> Result<(), Error>
     where
         T: Serialize,
     {
@@ -42,10 +52,31 @@ impl<'a> Store<'a> {
         {
             let mut table = write_txn.open_table(self.table).unwrap();
             table
-                .insert(key, to_bytes(value).unwrap().as_bytes())
+                .insert(key, serde_json::to_vec(&value).unwrap().as_slice())
                 .unwrap();
         }
         write_txn.commit().unwrap();
         Ok(())
     }
 }
+
+impl<'a> KVStore for HashMap<String, Vec<u8>> {
+    fn get<T>(&self, key: &str) -> Result<Option<T>, Error>
+    where
+        T: DeserializeOwned,
+    {
+        match self.get(key) {
+            None => Ok(None),
+            Some(v) => Ok(Some(serde_json::from_slice(v.as_ref()).unwrap())),
+        }
+    }
+
+    fn insert<T>(&mut self, key: &str, value: T) -> Result<(), Error>
+    where
+        T: Serialize,
+    {
+        self.insert(key.to_owned(), serde_json::to_vec(&value).unwrap());
+        Ok(())
+    }
+}
+

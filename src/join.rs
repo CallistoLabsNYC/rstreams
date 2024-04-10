@@ -5,7 +5,10 @@ use std::{collections::HashMap, time::Duration};
 use async_stream::stream;
 use tokio_stream::{Stream, StreamExt};
 
-use crate::{store::Store, within_window, ParsedMessage};
+use crate::{
+    store::{KVStore, Store},
+    within_window, ParsedMessage,
+};
 
 enum JoinMessage<A, B> {
     A(A),
@@ -18,11 +21,13 @@ pub async fn inner_join_streams_store<A, B, F>(
     high_water_mark: Duration,
     timestamp_accessor: F,
     name: &'static str,
+    mut stream_store_a: impl KVStore,
+    mut stream_store_b: impl KVStore,
 ) -> impl Stream<Item = ParsedMessage<(A, B)>>
 where
     F: (Fn(&A, &B) -> (i64, i64)),
-    A: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static,
-    B: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static,
+    A: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static + std::marker::Copy,
+    B: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static + std::marker::Copy,
 {
     let (sender, mut receiver) = tokio::sync::mpsc::channel(2);
     let sender_clone = sender.clone();
@@ -50,8 +55,8 @@ where
     stream! {
         let a_name = format!("{}-a", name);
         let b_name = format!("{}-b", name);
-        let mut stream_store_a = Store::new(&a_name).unwrap();
-        let mut stream_store_b = Store::new(&b_name).unwrap();
+        // let mut stream_store_a = Store::new(&a_name).unwrap();
+        // let mut stream_store_b = Store::new(&b_name).unwrap();
 
         while let Some(message) = receiver.recv().await {
             match message {
@@ -63,7 +68,7 @@ where
                         }
                         Some(mut a_events) => {
                             a_events.push(a.clone().value);
-                            stream_store_a.insert(&a.key, a_events).unwrap();
+                            stream_store_a.insert(&a.key, &a_events).unwrap();
                         }
                     }
 
@@ -91,18 +96,18 @@ where
                                 break;
                             }
                         }
-                        stream_store_b.insert(&a.key, b_events).unwrap();
+                        stream_store_b.insert(&a.key, &b_events).unwrap();
                     }
                 },
                 JoinMessage::B(b) => {
                         // insert into B store
                         match stream_store_b.get::<Vec<B>>(&b.key).unwrap() {
                             None => {
-                                stream_store_b.insert(&b.key, vec![b.value.clone()]).unwrap();
+                                stream_store_b.insert(&b.key, &[b.value.clone()]).unwrap();
                             }
                             Some(mut b_events) => {
                                 b_events.push(b.value.clone());
-                                stream_store_b.insert(&b.key, b_events).unwrap();
+                                stream_store_b.insert(&b.key, &b_events).unwrap();
                             }
                         }
 
@@ -129,7 +134,7 @@ where
                                     break;
                                 }
                             }
-                            stream_store_a.insert(&b.key, a_events).unwrap();
+                            stream_store_a.insert(&b.key, &a_events).unwrap();
                         }
 
                 }
