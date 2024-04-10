@@ -71,28 +71,28 @@ async fn main() -> Result<(), ()> {
     let input3 = Actor::spawn(input_stream3, buffer_size, "third-partition-input").await;
     let input4 = Actor::spawn(input_stream4, buffer_size, "fourth-partition-input").await;
 
-    let translator_stream1 = input1.to_stream().map(|record| {
+    let translator_stream1 = input1.map(|record| {
         std::str::from_utf8(record.value.as_bytes())
             .unwrap()
             .replace(&['(', ')', ',', '\"', '.', ';', ':', '\''][..], "")
             .to_lowercase()
     });
 
-    let translator_stream2 = input2.to_stream().map(|record| {
+    let translator_stream2 = input2.map(|record| {
         std::str::from_utf8(record.value.as_bytes())
             .unwrap()
             .replace(&['(', ')', ',', '\"', '.', ';', ':', '\''][..], "")
             .to_lowercase()
     });
 
-    let translator_stream3 = input3.to_stream().map(|record| {
+    let translator_stream3 = input3.map(|record| {
         std::str::from_utf8(record.value.as_bytes())
             .unwrap()
             .replace(&['(', ')', ',', '\"', '.', ';', ':', '\''][..], "")
             .to_lowercase()
     });
 
-    let translator_stream4 = input4.to_stream().map(|record| {
+    let translator_stream4 = input4.map(|record| {
         std::str::from_utf8(record.value.as_bytes())
             .unwrap()
             .replace(&['(', ')', ',', '\"', '.', ';', ':', '\''][..], "")
@@ -105,7 +105,6 @@ async fn main() -> Result<(), ()> {
     let translator4 = Actor::spawn(translator_stream4, buffer_size, "first-translator").await;
 
     let counter1 = translator1
-        .to_stream()
         .take(200000)
         .fold(HashMap::new(), |mut counter, word| {
             if let Some(count) = counter.get(&word) {
@@ -118,7 +117,6 @@ async fn main() -> Result<(), ()> {
         .await;
 
     let counter2 = translator2
-        .to_stream()
         .take(200000)
         .fold(HashMap::new(), |mut counter, word| {
             if let Some(count) = counter.get(&word) {
@@ -131,7 +129,6 @@ async fn main() -> Result<(), ()> {
         .await;
 
     let counter3 = translator3
-        .to_stream()
         .take(200000)
         .fold(HashMap::new(), |mut counter, word| {
             if let Some(count) = counter.get(&word) {
@@ -144,7 +141,6 @@ async fn main() -> Result<(), ()> {
         .await;
 
     let counter4 = translator4
-        .to_stream()
         .take(200000)
         .fold(HashMap::new(), |mut counter, word| {
             if let Some(count) = counter.get(&word) {

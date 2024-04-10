@@ -1,24 +1,27 @@
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::{Stream, StreamExt};
 use tracing::instrument;
-
-use crate::channel::Channel;
+use async_stream::stream;
 
 pub struct Actor;
 
 impl Actor {
-    pub async fn spawn<T: Clone + std::fmt::Debug + std::marker::Send + 'static>(
+    pub async fn spawn<T>(
         stream: impl Stream<Item = T> + std::marker::Send + 'static,
         buffer: usize,
         name: &'static str,
-    ) -> Channel<T> {
-        let (sender, receiver) = channel(buffer);
+    ) -> impl Stream<Item = T>
+    where T: std::fmt::Debug + std::marker::Send + 'static {
+        let (sender, mut receiver) = channel(buffer);
 
         // execute stream in background task
         tokio::spawn(actor(stream, sender.clone(), name));
 
-        // where the results go
-        Channel { receiver, sender }
+        stream! {
+            while let Some(message) = receiver.recv().await {
+                yield message;
+            }
+        }
     }
 }
 
