@@ -1,27 +1,26 @@
-use std::{collections::HashMap, time::Duration};
-
+use std::time::Duration;
+use serde::{Serialize, de::DeserializeOwned};
 use tokio_stream::{Stream, StreamExt};
 
-use crate::ParsedMessage;
+use crate::{store::KVStore, ParsedMessage};
 
 pub fn lag_window<A>(
     stream: impl Stream<Item = ParsedMessage<A>> + 'static,
     lag: usize,
+    mut stream_store: impl KVStore,
 ) -> impl Stream<Item = ParsedMessage<Vec<A>>>
 where
-    A: Clone + 'static,
+    A: Clone + Serialize + DeserializeOwned + 'static,
 {
     async_stream::stream! {
-        let mut stream_store = HashMap::new();
-
         tokio::pin!(stream);
 
         while let Some(new_event) = stream.next().await {
-            match stream_store.get_mut(&new_event.key) {
+            match stream_store.get::<Vec<A>>(&new_event.key).unwrap() {
                 None => {
-                    stream_store.insert(new_event.key, vec![new_event.value]);
+                    stream_store.insert(&new_event.key, vec![new_event.clone().value]).unwrap();
                 }
-                Some(events) => {
+                Some(mut events) => {
                     events.push(new_event.clone().value);
                     if events.len() == lag {
                         yield (ParsedMessage {
@@ -31,6 +30,7 @@ where
 
                         events.remove(0);
                     }
+                    stream_store.insert(&new_event.key, events).unwrap();
                 }
             }
         }
@@ -41,22 +41,21 @@ pub fn tumbling_window<A, F>(
     stream: impl Stream<Item = ParsedMessage<A>> + 'static,
     s: Duration,
     timestamp_accessor: F,
+    mut stream_store: impl KVStore,
 ) -> impl Stream<Item = ParsedMessage<Vec<A>>>
 where
     F: (Fn(&A) -> i64),
-    A: Clone + 'static,
+    A: Clone + Serialize + DeserializeOwned + 'static,
 {
     async_stream::stream! {
-        let mut stream_store = HashMap::new();
-
         tokio::pin!(stream);
 
         while let Some(new_event) = stream.next().await {
-            match stream_store.get_mut(&new_event.key) {
+            match stream_store.get::<Vec<A>>(&new_event.key).unwrap() {
                 None => {
-                    stream_store.insert(new_event.key, vec![new_event.value]);
+                    stream_store.insert(&new_event.key, vec![new_event.clone().value]).unwrap();
                 }
-                Some(events) => {
+                Some(mut events) => {
                     if !events.is_empty() {
                         let earliest_window_index = timestamp_accessor(&events[0]) / (s.as_millis() as i64);
                         let latest_window_index = timestamp_accessor(&new_event.value) / (s.as_millis() as i64);
@@ -83,6 +82,8 @@ where
                         }
                     }
                     events.push(new_event.clone().value);
+
+                    stream_store.insert(&new_event.key, events).unwrap();
                 }
             }
         }
@@ -95,31 +96,30 @@ pub fn hopping_window<A, F>(
     s: Duration,
     h: Duration,
     timestamp_accessor: F,
+    mut stream_store: impl KVStore,
+    mut time_store: impl KVStore,
 ) -> impl Stream<Item = ParsedMessage<(i64, Vec<A>)>>
 where
     F: (Fn(&A) -> i64),
-    A: Clone + 'static,
+    A: Clone + Serialize + DeserializeOwned + 'static,
 {
     async_stream::stream! {
-        let mut stream_store = HashMap::new();
-        let mut time_store = HashMap::new();
-
         tokio::pin!(stream);
 
         while let Some(new_event) = stream.next().await {
             // tracing::info!("Incoming {}", timestamp_accessor(&new_event.value));
-            match stream_store.get_mut(&new_event.key) {
+            match stream_store.get::<Vec<A>>(&new_event.key).unwrap() {
                 None => {
                     // tracing::info!("Initializing");
-                    stream_store.insert(new_event.key, vec![new_event.value]);
+                    stream_store.insert(&new_event.key, vec![new_event.value]).unwrap();
                 }
-                Some(events) => {
+                Some(mut events) => {
                     // tracing::info!("len {}", events.len());
                     events.push(new_event.clone().value);
                     if events.len() > 1 {
-                        let mut working_window_time = match time_store.get(&new_event.key) {
+                        let mut working_window_time = match time_store.get::<i64>(&new_event.key).unwrap() {
                             None => timestamp_accessor(&events[0]),
-                            Some(working_window_time) => *working_window_time,
+                            Some(working_window_time) => working_window_time,
                         };
 
                         let earliest_window_index = working_window_time / (s.as_millis() as i64);
@@ -166,8 +166,10 @@ where
                             }
                         }
 
-                        time_store.insert(new_event.key, working_window_time);
+                        time_store.insert(&new_event.key, working_window_time).unwrap();
                     }
+
+                    stream_store.insert(&new_event.key, events).unwrap();
                 }
             }
         }
@@ -176,6 +178,7 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::{collections::HashMap, time::Duration};
     use super::*;
 
     // #[tokio::test]
@@ -239,6 +242,8 @@ mod test {
             Duration::from_millis(3),
             Duration::from_millis(3),
             |a| *a,
+            HashMap::new(),
+            HashMap::new()
         );
         tokio::pin!(windowed);
 
@@ -281,6 +286,8 @@ mod test {
             Duration::from_millis(3),
             Duration::from_millis(1),
             |a| *a,
+            HashMap::new(),
+            HashMap::new()
         );
         tokio::pin!(windowed);
 

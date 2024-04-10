@@ -174,6 +174,8 @@ async fn main() -> Result<(), ()> {
             Duration::from_secs(seconds),
             Duration::from_secs(seconds),
             |e| e.timestamp,
+            HashMap::new(),
+            HashMap::new()
         )
         .map(|message| aggregate_candles(message.key, message.value.0, message.value.1))
         .filter(|message| message.value.volume != 0.0),
@@ -188,7 +190,7 @@ async fn main() -> Result<(), ()> {
         .await
         .map_err(|err| tracing::error!("{:?}", err))?
         .build_from_stream(
-            lag_window(stream.clone(), 2)
+            lag_window(stream.clone(), 2,HashMap::new(),)
                 .map(|message| classify_candle_strat(message.key, message.value))
                 .map(|message| ProduceMessage {
                     key: Some(Bytes::from(message.key)),
@@ -207,6 +209,9 @@ async fn main() -> Result<(), ()> {
                 Duration::from_secs(seconds),
                 Duration::from_secs(seconds),
                 |e| e.timestamp,
+            HashMap::new(),
+            HashMap::new(),
+        
             )
             .map(|message| aggregate_candles(message.key, message.value.0, message.value.1))
             .filter(|message| message.value.volume != 0.0),
@@ -221,7 +226,7 @@ async fn main() -> Result<(), ()> {
             .await
             .map_err(|err| tracing::error!("{:?}", err))?
             .build_from_stream(
-                lag_window(stream.clone(), 2)
+            lag_window(stream.clone(), 2,HashMap::new(),)
                     .map(|message| classify_candle_strat(message.key, message.value))
                     .map(|message| ProduceMessage {
                         key: Some(Bytes::from(message.key)),
