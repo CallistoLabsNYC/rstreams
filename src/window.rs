@@ -57,7 +57,7 @@ where
                 Some(events) => {
                     if !events.is_empty() {
                         let earliest_window_index = events[0].timestamp() / (s.as_millis() as i64);
-                        let latest_window_index = &new_event.value.timestamp() / (s.as_millis() as i64);
+                        let latest_window_index = new_event.value.timestamp() / (s.as_millis() as i64);
                         // if we have left the window
                         if earliest_window_index != latest_window_index {
                             // produce our array of fields in the window

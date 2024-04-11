@@ -51,6 +51,15 @@ pub fn into_flat_stream(
     )
 }
 
+pub fn erase_stream_type<T>(
+    stream: impl Stream<Item = ParsedMessage<T>> + std::marker::Send + std::marker::Unpin + 'static,
+) -> Box<dyn Stream<Item = ParsedMessage<T>> + Send + Unpin + 'static>
+where
+    T: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static,
+{
+    Box::new(stream)
+}
+
 pub trait Dated {
     fn timestamp(&self) -> i64;
 }

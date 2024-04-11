@@ -3,7 +3,7 @@ use fork_stream::StreamExt as _;
 use nom::AsBytes;
 use rstreams::{
     actor::Actor,
-    from_bytes, into_flat_stream, to_bytes,
+    erase_stream_type, from_bytes, into_flat_stream, to_bytes,
     window::{hopping_window, lag_window},
     Dated, ParsedMessage,
 };
@@ -11,7 +11,6 @@ use samsa::prelude::{ConsumerBuilder, ProduceMessage, ProducerBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use tokio_stream::Stream;
 use tokio_stream::StreamExt as _;
 
 /*
@@ -149,12 +148,14 @@ async fn main() -> Result<(), ()> {
     // read in 1 batch at a time
     let stock_batches = Actor::spawn(consumer_stream, 1, "stocks-consumer").await;
 
-    let parser_stream = into_flat_stream(stock_batches).map(|record| ParsedMessage::<Candle> {
-        key: std::str::from_utf8(record.key.as_bytes())
-            .unwrap()
-            .to_owned(),
-        value: from_bytes::<Candle>(record.value).unwrap(),
-    }).fork();
+    let parser_stream = into_flat_stream(stock_batches)
+        .map(|record| ParsedMessage::<Candle> {
+            key: std::str::from_utf8(record.key.as_bytes())
+                .unwrap()
+                .to_owned(),
+            value: from_bytes::<Candle>(record.value).unwrap(),
+        })
+        .fork();
 
     let timeframes = vec![
         (60 * 15, "15min-candles"),
@@ -169,27 +170,32 @@ async fn main() -> Result<(), ()> {
         (60 * 60 * 24 * 365, "year-candles"),
     ];
 
-    let stream = parser_stream;
+    // solid type-fu. This is so that we can use a loop to build up our pipeline
+    // rather than explicit variables for each timeframe
+    let mut stream = erase_stream_type(parser_stream).fork();
 
     for (seconds, topic) in timeframes {
-        stream = Actor::spawn(
-            hopping_window(
-                stream,
-                Duration::from_secs(seconds),
-                Duration::from_secs(seconds),
+        stream = erase_stream_type(
+            Actor::spawn(
+                hopping_window(
+                    stream,
+                    Duration::from_secs(seconds),
+                    Duration::from_secs(seconds),
+                )
+                .filter_map(|message| {
+                    let message = aggregate_candles(message.key, message.value.0, message.value.1);
+                    if message.value.volume != 0.0 {
+                        Some(message)
+                    } else {
+                        None
+                    }
+                }),
+                1,
+                topic,
             )
-            .filter_map(|message| {
-                let message = aggregate_candles(message.key, message.value.0, message.value.1);
-                if message.value.volume != 0.0 {
-                    Some(message)
-                } else {
-                    None
-                }
-            }),
-            1,
-            topic,
+            .await
+            .fork(),
         )
-        .await
         .fork();
 
         ProducerBuilder::new(bootstrap_addrs.clone(), vec![topic.to_string()])
@@ -209,17 +215,16 @@ async fn main() -> Result<(), ()> {
             .await;
     }
 
-    tokio::pin!(stream);
+    // tokio::pin!(stream);
 
-    while let Some(message) = stream.next().await {
-        tracing::info!("main! {:?}", message);
-    }
+    // while let Some(message) = stream.next().await {
+    //     tracing::info!("main! {:?}", message);
+    // }
 
     tracing::info!("Main out!");
 
     Ok(())
 }
-
 
 fn aggregate_candles(key: String, timestamp: i64, window: Vec<Candle>) -> ParsedMessage<Candle> {
     tracing::info!("aggregating {} items", window.len());
