@@ -7,128 +7,130 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::{store::KVStore, within_window, ParsedMessage};
 
-enum JoinMessage<A, B> {
-    A(A),
-    B(B),
+enum Either<L, R> {
+    Left(L),
+    Right(R),
 }
 
-pub async fn inner_join_streams<A, B, F>(
-    stream_a: impl Stream<Item = ParsedMessage<A>> + 'static + std::marker::Send,
-    stream_b: impl Stream<Item = ParsedMessage<B>> + 'static + std::marker::Send,
+//
+// This funciton joins 2 streams. It uses a keys with a simple time window
+// to match up the stream values. If a message with key A comes in on a stream,
+// we yield all A messages from the other stream that are within the window.
+//
+pub async fn inner_join_streams<L, R, F>(
+    stream_left: impl Stream<Item = ParsedMessage<L>> + 'static + std::marker::Send,
+    stream_right: impl Stream<Item = ParsedMessage<R>> + 'static + std::marker::Send,
     high_water_mark: Duration,
     timestamp_accessor: F,
-    mut stream_store_a: impl KVStore,
-    mut stream_store_b: impl KVStore,
-) -> impl Stream<Item = ParsedMessage<(A, B)>>
+    mut stream_store_left: impl KVStore,
+    mut stream_store_right: impl KVStore,
+) -> impl Stream<Item = ParsedMessage<(L, R)>>
 where
-    F: (Fn(&A, &B) -> (i64, i64)),
-    A: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static,
-    B: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static,
+    F: (Fn(&L, &R) -> (i64, i64)),
+    L: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static,
+    R: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static,
 {
     let (sender, mut receiver) = tokio::sync::mpsc::channel(2);
     let sender_clone = sender.clone();
 
     // process B
     tokio::spawn(async move {
-        tokio::pin!(stream_b);
-        while let Some(b) = stream_b.next().await {
-            if sender.send(JoinMessage::B(b)).await.is_err() {
-                tracing::warn!("B Side of join hung up channel");
+        tokio::pin!(stream_right);
+        while let Some(r) = stream_right.next().await {
+            if sender.send(Either::Right(r)).await.is_err() {
+                tracing::warn!("Right Side of join hung up channel");
             }
         }
     });
 
     // process A
     tokio::spawn(async move {
-        tokio::pin!(stream_a);
-        while let Some(a) = stream_a.next().await {
-            if sender_clone.send(JoinMessage::A(a)).await.is_err() {
-                tracing::warn!("A Side of join hung up channel");
+        tokio::pin!(stream_left);
+        while let Some(left) = stream_left.next().await {
+            if sender_clone.send(Either::Left(left)).await.is_err() {
+                tracing::warn!("Left Side of join hung up channel");
             }
         }
     });
 
     stream! {
-        // let mut stream_store_a = Store::new(&a_name).unwrap();
-        // let mut stream_store_b = Store::new(&b_name).unwrap();
-
         while let Some(message) = receiver.recv().await {
             match message {
-                JoinMessage::A(a) => {
-                    // insert into A store
-                    match stream_store_a.get::<Vec<A>>(&a.key).unwrap() {
+                Either::Left(left) => {
+                    // insert into Left store
+                    match stream_store_left.get::<Vec<L>>(&left.key).unwrap() {
                         None => {
-                            stream_store_a.insert(&a.key, vec![a.clone().value]).unwrap();
+                            stream_store_left.insert(&left.key, vec![left.clone().value]).unwrap();
                         }
-                        Some(mut a_events) => {
-                            a_events.push(a.clone().value);
-                            stream_store_a.insert(&a.key, &a_events).unwrap();
+                        Some(mut left_events) => {
+                            left_events.push(left.clone().value);
+                            stream_store_left.insert(&left.key, &left_events).unwrap();
                         }
                     }
 
-                    // check against all Bs
-                    if let Some(mut b_events) = stream_store_b.get::<Vec<B>>(&a.key).unwrap() {
+                    // check against all Rs
+                    if let Some(mut right_events) = stream_store_right.get::<Vec<R>>(&left.key).unwrap() {
                         // prune step
-                        b_events.retain(|b| {
-                            let (a_timestamp, b_timestamp) = timestamp_accessor(&a.value, b);
-                            within_window(b_timestamp, a_timestamp, high_water_mark)
-                                || a_timestamp < b_timestamp
+                        right_events.retain(|right| {
+                            let (left_timestamp, right_timestamp) = timestamp_accessor(&left.value, right);
+                            within_window(right_timestamp, left_timestamp, high_water_mark)
+                                || left_timestamp < right_timestamp
                         });
-                        for b in b_events.iter() {
-                            let (a_timestamp, b_timestamp) = timestamp_accessor(&a.value, b);
+                        for right in right_events.iter() {
+                            let (left_timestamp, right_timestamp) = timestamp_accessor(&left.value, right);
 
-                            if within_window(b_timestamp, a_timestamp, high_water_mark) {
+                            if within_window(right_timestamp, left_timestamp, high_water_mark) {
                                 yield ParsedMessage {
-                                    key: a.key.to_string(),
-                                    value: (a.value.clone(), b.clone())
+                                    key: left.key.to_string(),
+                                    value: (left.value.clone(), right.clone())
                                 }
                             }
 
-                            if b_timestamp > a_timestamp
-                                && !within_window(b_timestamp, a_timestamp, high_water_mark)
+                            if right_timestamp > left_timestamp
+                                && !within_window(right_timestamp, left_timestamp, high_water_mark)
                             {
                                 break;
                             }
                         }
-                        stream_store_b.insert(&a.key, &b_events).unwrap();
+                        stream_store_right.insert(&left.key, &right_events).unwrap();
                     }
                 },
-                JoinMessage::B(b) => {
-                        // insert into B store
-                        match stream_store_b.get::<Vec<B>>(&b.key).unwrap() {
+                Either::Right(right) => {
+                        // insert into R store
+                        match stream_store_right.get::<Vec<R>>(&right.key).unwrap() {
                             None => {
-                                stream_store_b.insert(&b.key, &[b.value.clone()]).unwrap();
+                                stream_store_right.insert(&right.key, &[right.value.clone()]).unwrap();
                             }
-                            Some(mut b_events) => {
-                                b_events.push(b.value.clone());
-                                stream_store_b.insert(&b.key, &b_events).unwrap();
+                            Some(mut right_events) => {
+                                right_events.push(right.value.clone());
+                                stream_store_right.insert(&right.key, &right_events).unwrap();
                             }
                         }
 
-                        // check against all As
-                        if let Some(mut a_events) = stream_store_a.get::<Vec<A>>(&b.key).unwrap() {
-                            a_events.retain(|a| {
-                                let (a_timestamp, b_timestamp) = timestamp_accessor(a, &b.value);
-                                within_window(b_timestamp, a_timestamp, high_water_mark)
-                                    || a_timestamp > b_timestamp
+                        // check against all Ls
+                        if let Some(mut left_events) = stream_store_left.get::<Vec<L>>(&right.key).unwrap() {
+                            left_events.retain(|a| {
+                                let (left_timestamp, right_timestamp) = timestamp_accessor(a, &right.value);
+                                within_window(right_timestamp, left_timestamp, high_water_mark)
+                                    || left_timestamp > right_timestamp
                             });
-                            for a in a_events.clone() {
-                                let (a_timestamp, b_timestamp) = timestamp_accessor(&a, &b.value);
+                            for left in left_events.clone() {
+                                let (left_timestamp, right_timestamp) = timestamp_accessor(&left, &right.value);
 
-                                if within_window(b_timestamp, a_timestamp, high_water_mark) {
+                                if within_window(right_timestamp, left_timestamp, high_water_mark) {
                                     yield ParsedMessage {
-                                        key: b.key.to_string(),
-                                        value: (a.clone(), b.value.clone())
+                                        key: right.key.to_string(),
+                                        value: (left.clone(), right.value.clone())
                                     }
                                 }
 
-                                if a_timestamp > b_timestamp
-                                    && !within_window(b_timestamp, a_timestamp, high_water_mark)
+                                if left_timestamp > right_timestamp
+                                    && !within_window(right_timestamp, left_timestamp, high_water_mark)
                                 {
                                     break;
                                 }
                             }
-                            stream_store_a.insert(&b.key, &a_events).unwrap();
+                            stream_store_left.insert(&right.key, &left_events).unwrap();
                         }
 
                 }
