@@ -8,7 +8,7 @@ type RTable<T> = Arc<Mutex<T>>;
 pub struct Table;
 
 impl Table {
-    pub async fn new<V>(
+    pub async fn spawn<V>(
         name: &'static str,
         stream: impl Stream<Item = ParsedMessage<V>> + std::marker::Send + 'static,
         store: impl KVStore + std::marker::Send + 'static,
@@ -73,12 +73,12 @@ mod test {
             to_message("c", 4), // last c
         ]);
 
-        let (output, table) = Table::new("tester", stream, HashMap::new()).await;
+        let (output, table) = Table::spawn("tester", stream, HashMap::new()).await;
         tokio::pin!(output);
         // you can manually read and look at the store
         output.next().await;
         // but we will consume the whole stream
-        while let Some(_) = output.next().await {}
+        while output.next().await.is_some() {}
 
         let a: i64 = table.lock().unwrap().get("a").unwrap().unwrap();
         assert_eq!(a, 4);
