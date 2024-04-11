@@ -11,11 +11,13 @@ impl Actor {
         buffer: usize,
         name: &'static str,
     ) -> impl Stream<Item = T> {
+        // how we will communicate with the thread
         let (sender, mut receiver) = channel(buffer);
 
         // execute stream in background task
         tokio::spawn(actor(stream, sender.clone(), name));
 
+        // receive the actor output and make it a stream
         stream! {
             while let Some(message) = receiver.recv().await {
                 yield message;
@@ -24,6 +26,7 @@ impl Actor {
     }
 }
 
+/// The async function for the tokio task to execute
 #[instrument(skip(stream, sender))]
 async fn actor<T: std::marker::Send + std::fmt::Debug + 'static>(
     stream: impl Stream<Item = T> + std::marker::Send + 'static,
