@@ -1,21 +1,102 @@
-use crate::{store::KVStore, ParsedMessage};
-use tokio_stream::{Stream, StreamExt};
+use crate::{actor::Actor, store::KVStore, ParsedMessage};
 use serde::Serialize;
+use std::sync::{Arc, Mutex};
+use tokio_stream::{Stream, StreamExt};
 
-pub struct Table<T: KVStore> {
-    store: T
+type RTable<T> = Arc<Mutex<T>>;
+
+pub struct Table;
+
+impl Table {
+    pub async fn new<V>(
+        name: &'static str,
+        stream: impl Stream<Item = ParsedMessage<V>> + std::marker::Send + 'static,
+        store: impl KVStore + std::marker::Send + 'static,
+    ) -> (
+        impl Stream<Item = ParsedMessage<V>> + std::marker::Send + 'static,
+        RTable<impl KVStore + std::marker::Send + 'static>,
+    )
+    where
+        V: Copy + Clone + std::fmt::Debug + Serialize + Send + 'static,
+    {
+        let table = Arc::new(Mutex::new(store));
+        let t = table.clone();
+        let stream = stream.map(move |message| {
+            table
+                .lock()
+                .unwrap()
+                .insert(&message.key, message.value)
+                .unwrap();
+            message
+        });
+        let stream = Actor::spawn(stream, 1, name).await;
+        (stream, t)
+    }
 }
 
-impl<T> Table<T> where T: KVStore + Send + 'static {
-    pub async fn new<V>(stream: impl Stream<Item = ParsedMessage<V>>  + std::marker::Send + 'static, mut store: T)
-    where V: Clone + Serialize + Send {
-        tokio::spawn(async move {
-            tokio::pin!(stream);
-            tracing::info!("Table coming online");
-            while let Some(message) = stream.next().await {
-                store.insert(&message.key, message.value).unwrap();
-            }
-            tracing::info!("Table finished stream");
-        });
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn it_works_as_expected() {
+        tracing_subscriber::fmt()
+            // filter spans/events with level TRACE or higher.
+            .with_max_level(tracing::Level::INFO)
+            .compact()
+            // Display source code file paths
+            .with_file(true)
+            // Display source code line numbers
+            .with_line_number(true)
+            // Display the thread ID an event was recorded on
+            .with_thread_ids(true)
+            // Don't display the event's target (module path)
+            .with_target(false)
+            // Build the subscriber
+            .init();
+        let stream = futures::stream::iter(vec![
+            to_message("a", 0),
+            to_message("a", 1),
+            to_message("a", 2),
+            to_message("a", 3),
+            to_message("b", 0),
+            to_message("b", 1),
+            to_message("b", 2),
+            to_message("b", 3), // last b
+            to_message("a", 4), // last a
+            to_message("c", 0),
+            to_message("c", 1),
+            to_message("c", 2),
+            to_message("d", 0), // last d
+            to_message("c", 3),
+            to_message("c", 4), // last c
+        ]);
+
+        let (output, table) = Table::new("tester", stream, HashMap::new()).await;
+        tokio::pin!(output);
+        // you can manually read and look at the store
+        output.next().await;
+        // but we will consume the whole stream
+        while let Some(_) = output.next().await {}
+        
+        let a: i64 = table.lock().unwrap().get("a").unwrap().unwrap();
+        assert_eq!(a, 4);
+
+        let b: i64 = table.lock().unwrap().get("b").unwrap().unwrap();
+        assert_eq!(b, 3);
+
+        let c: i64 = table.lock().unwrap().get("c").unwrap().unwrap();
+        assert_eq!(c, 4);
+
+        let d: i64 = table.lock().unwrap().get("d").unwrap().unwrap();
+        assert_eq!(d, 0);
+    }
+
+    fn to_message(key: &str, value: i64) -> ParsedMessage<i64> {
+        ParsedMessage {
+            key: key.to_string(),
+            value,
+        }
     }
 }
