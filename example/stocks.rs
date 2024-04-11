@@ -220,6 +220,7 @@ async fn main() -> Result<(), ()> {
     // while let Some(message) = stream.next().await {
     //     tracing::info!("main! {:?}", message);
     // }
+    tokio::time::sleep(tokio::time::Duration::MAX).await;
 
     tracing::info!("Main out!");
 
