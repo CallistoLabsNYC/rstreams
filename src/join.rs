@@ -5,7 +5,7 @@ use std::time::Duration;
 use async_stream::stream;
 use tokio_stream::{Stream, StreamExt};
 
-use crate::{store::KVStore, within_window, ParsedMessage};
+use crate::{store::KVStore, within_window, Dated, ParsedMessage};
 
 enum Either<L, R> {
     Left(L),
@@ -17,18 +17,16 @@ enum Either<L, R> {
 // to match up the stream values. If a message with key A comes in on a stream,
 // we yield all A messages from the other stream that are within the window.
 //
-pub async fn inner_join_streams<L, R, F>(
+pub async fn inner_join_streams<L, R>(
     stream_left: impl Stream<Item = ParsedMessage<L>> + 'static + Send,
     stream_right: impl Stream<Item = ParsedMessage<R>> + 'static + Send,
     high_water_mark: Duration,
-    timestamp_accessor: F,
     mut stream_store_left: impl KVStore,
     mut stream_store_right: impl KVStore,
 ) -> impl Stream<Item = ParsedMessage<(L, R)>>
 where
-    F: (Fn(&L, &R) -> (i64, i64)),
-    L: Clone + Send + Serialize + DeserializeOwned + 'static,
-    R: Clone + Send + Serialize + DeserializeOwned + 'static,
+    L: Clone + Dated + Send + Serialize + DeserializeOwned + 'static,
+    R: Clone + Dated + Send + Serialize + DeserializeOwned + 'static,
 {
     let (sender, mut receiver) = tokio::sync::mpsc::channel(2);
     let sender_clone = sender.clone();
@@ -72,12 +70,12 @@ where
                     if let Some(mut right_events) = stream_store_right.get::<Vec<R>>(&left.key).unwrap() {
                         // prune step
                         right_events.retain(|right| {
-                            let (left_timestamp, right_timestamp) = timestamp_accessor(&left.value, right);
+                            let (left_timestamp, right_timestamp) = (left.value.timestamp(), right.timestamp());
                             within_window(right_timestamp, left_timestamp, high_water_mark)
                                 || left_timestamp < right_timestamp
                         });
                         for right in right_events.iter() {
-                            let (left_timestamp, right_timestamp) = timestamp_accessor(&left.value, right);
+                            let (left_timestamp, right_timestamp) = (left.value.timestamp(), right.timestamp());
 
                             if within_window(right_timestamp, left_timestamp, high_water_mark) {
                                 yield ParsedMessage {
@@ -109,13 +107,13 @@ where
 
                         // check against all Ls
                         if let Some(mut left_events) = stream_store_left.get::<Vec<L>>(&right.key).unwrap() {
-                            left_events.retain(|a| {
-                                let (left_timestamp, right_timestamp) = timestamp_accessor(a, &right.value);
+                            left_events.retain(|left| {
+                                let (left_timestamp, right_timestamp) = (left.timestamp(), right.value.timestamp());
                                 within_window(right_timestamp, left_timestamp, high_water_mark)
                                     || left_timestamp > right_timestamp
                             });
                             for left in left_events.clone() {
-                                let (left_timestamp, right_timestamp) = timestamp_accessor(&left, &right.value);
+                                let (left_timestamp, right_timestamp) = (left.timestamp(), right.value.timestamp());
 
                                 if within_window(right_timestamp, left_timestamp, high_water_mark) {
                                     yield ParsedMessage {
@@ -147,6 +145,15 @@ mod test {
 
     use super::*;
 
+    #[cfg(test)]
+mod test {
+    impl super::Dated for (String, i64) {
+        fn timestamp(&self) -> i64 {
+            self.1
+        }
+    }
+}
+    
     // test from https://www.confluent.io/blog/crossing-streams-joins-apache-kafka/
     #[tokio::test]
     async fn test_inner_join() {
@@ -174,7 +181,6 @@ mod test {
             stream_a,
             stream_b,
             Duration::from_millis(10),
-            |a, b| (*a, *b),
             HashMap::new(),
             HashMap::new(),
         )
@@ -210,7 +216,6 @@ mod test {
             stream_a,
             stream_b,
             Duration::from_millis(1000),
-            |a, b| (a.1, b.1),
             HashMap::new(),
             HashMap::new(),
         )
@@ -359,7 +364,6 @@ mod test {
             stream_a,
             stream_b,
             Duration::from_millis(10),
-            |a, b| (*a, *b),
             Store::new("test-a").unwrap(),
             Store::new("test-b").unwrap(),
         )
