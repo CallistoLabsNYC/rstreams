@@ -1,30 +1,35 @@
+use async_stream::stream;
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::{Stream, StreamExt};
 use tracing::instrument;
 
-use crate::channel::Channel;
-
 pub struct Actor;
 
 impl Actor {
-    pub async fn spawn<T: Clone + std::fmt::Debug + std::marker::Send + 'static>(
-        stream: impl Stream<Item = T> + std::marker::Send + 'static,
+    pub async fn spawn<T: Clone + std::fmt::Debug + Send + 'static>(
+        stream: impl Stream<Item = T> + Send + 'static,
         buffer: usize,
         name: &'static str,
-    ) -> Channel<T> {
-        let (sender, receiver) = channel(buffer);
+    ) -> impl Stream<Item = T> {
+        // how we will communicate with the thread
+        let (sender, mut receiver) = channel(buffer);
 
         // execute stream in background task
         tokio::spawn(actor(stream, sender.clone(), name));
 
-        // where the results go
-        Channel { receiver, sender }
+        // receive the actor output and make it a stream
+        stream! {
+            while let Some(message) = receiver.recv().await {
+                yield message;
+            }
+        }
     }
 }
 
+/// The async function for the tokio task to execute
 #[instrument(skip(stream, sender))]
-async fn actor<T: std::marker::Send + std::fmt::Debug + 'static>(
-    stream: impl Stream<Item = T> + std::marker::Send + 'static,
+async fn actor<T: Send + std::fmt::Debug + 'static>(
+    stream: impl Stream<Item = T> + Send + 'static,
     sender: Sender<T>,
     name: &'static str,
 ) {
