@@ -10,11 +10,11 @@ pub struct Table;
 impl Table {
     pub async fn spawn<V>(
         name: &'static str,
-        stream: impl Stream<Item = ParsedMessage<V>> + std::marker::Send + 'static,
-        store: impl KVStore + std::marker::Send + 'static,
+        stream: impl Stream<Item = ParsedMessage<V>> + Send + 'static,
+        store: impl KVStore + Send + 'static,
     ) -> (
-        impl Stream<Item = ParsedMessage<V>> + std::marker::Send + 'static,
-        RTable<impl KVStore + std::marker::Send + 'static>,
+        impl Stream<Item = ParsedMessage<V>> + Send + 'static,
+        RTable<impl KVStore + Send + 'static>,
     )
     where
         V: Copy + Clone + std::fmt::Debug + Serialize + Send + 'static,
