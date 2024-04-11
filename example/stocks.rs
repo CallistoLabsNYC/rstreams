@@ -181,7 +181,8 @@ async fn main() -> Result<(), ()> {
                     stream,
                     Duration::from_secs(seconds),
                     Duration::from_secs(seconds),
-                    HashMap::new()
+                    HashMap::new(),
+                    HashMap::new(),
                 )
                 .filter_map(|message| {
                     let message = aggregate_candles(message.key, message.value.0, message.value.1);
