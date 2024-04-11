@@ -18,8 +18,8 @@ enum Either<L, R> {
 // we yield all A messages from the other stream that are within the window.
 //
 pub async fn inner_join_streams<L, R, F>(
-    stream_left: impl Stream<Item = ParsedMessage<L>> + 'static + std::marker::Send,
-    stream_right: impl Stream<Item = ParsedMessage<R>> + 'static + std::marker::Send,
+    stream_left: impl Stream<Item = ParsedMessage<L>> + 'static + Send,
+    stream_right: impl Stream<Item = ParsedMessage<R>> + 'static + Send,
     high_water_mark: Duration,
     timestamp_accessor: F,
     mut stream_store_left: impl KVStore,
@@ -27,8 +27,8 @@ pub async fn inner_join_streams<L, R, F>(
 ) -> impl Stream<Item = ParsedMessage<(L, R)>>
 where
     F: (Fn(&L, &R) -> (i64, i64)),
-    L: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static,
-    R: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static,
+    L: Clone + Send + Serialize + DeserializeOwned + 'static,
+    R: Clone + Send + Serialize + DeserializeOwned + 'static,
 {
     let (sender, mut receiver) = tokio::sync::mpsc::channel(2);
     let sender_clone = sender.clone();

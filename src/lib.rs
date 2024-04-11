@@ -1,5 +1,4 @@
 pub mod actor;
-pub mod channel;
 pub mod join;
 pub mod store;
 pub mod window;
@@ -11,8 +10,9 @@ use std::time::Duration;
 
 #[cfg(feature = "kafka")]
 use samsa::prelude::{ConsumeMessage, PartitionOffsets};
+use tokio_stream::Stream;
 #[cfg(feature = "kafka")]
-use tokio_stream::{Stream, StreamExt};
+use tokio_stream::StreamExt;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct ParsedMessage<T: Clone> {
@@ -50,6 +50,19 @@ pub fn into_flat_stream(
             .map(|(batch, _)| batch),
         futures::stream::iter,
     )
+}
+
+pub fn erase_stream_type<T>(
+    stream: impl Stream<Item = ParsedMessage<T>> + Send + Unpin + 'static,
+) -> Box<dyn Stream<Item = ParsedMessage<T>> + Send + Unpin + 'static>
+where
+    T: Clone + Send + Serialize + DeserializeOwned + 'static,
+{
+    Box::new(stream)
+}
+
+pub trait Dated {
+    fn timestamp(&self) -> i64;
 }
 
 #[test]
