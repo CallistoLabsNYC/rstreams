@@ -10,9 +10,9 @@ use std::time::Duration;
 
 #[cfg(feature = "kafka")]
 use samsa::prelude::{ConsumeMessage, PartitionOffsets};
+use tokio_stream::Stream;
 #[cfg(feature = "kafka")]
 use tokio_stream::StreamExt;
-use tokio_stream::Stream;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct ParsedMessage<T: Clone> {
