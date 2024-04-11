@@ -79,7 +79,7 @@ mod test {
         output.next().await;
         // but we will consume the whole stream
         while let Some(_) = output.next().await {}
-        
+
         let a: i64 = table.lock().unwrap().get("a").unwrap().unwrap();
         assert_eq!(a, 4);
 
