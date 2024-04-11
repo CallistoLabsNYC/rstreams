@@ -13,8 +13,8 @@ enum JoinMessage<A, B> {
 }
 
 pub async fn inner_join_streams<A, B, F>(
-    stream_a: impl Stream<Item = ParsedMessage<A>> + 'static + std::marker::Send,
-    stream_b: impl Stream<Item = ParsedMessage<B>> + 'static + std::marker::Send,
+    stream_a: impl Stream<Item = ParsedMessage<A>> + 'static + Send,
+    stream_b: impl Stream<Item = ParsedMessage<B>> + 'static + Send,
     high_water_mark: Duration,
     timestamp_accessor: F,
     mut stream_store_a: impl KVStore,
@@ -22,8 +22,8 @@ pub async fn inner_join_streams<A, B, F>(
 ) -> impl Stream<Item = ParsedMessage<(A, B)>>
 where
     F: (Fn(&A, &B) -> (i64, i64)),
-    A: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static,
-    B: Clone + std::marker::Send + Serialize + DeserializeOwned + 'static,
+    A: Clone + Send + Serialize + DeserializeOwned + 'static,
+    B: Clone + Send + Serialize + DeserializeOwned + 'static,
 {
     let (sender, mut receiver) = tokio::sync::mpsc::channel(2);
     let sender_clone = sender.clone();

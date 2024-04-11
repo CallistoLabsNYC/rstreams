@@ -6,8 +6,8 @@ use tracing::instrument;
 pub struct Actor;
 
 impl Actor {
-    pub async fn spawn<T: Clone + std::fmt::Debug + std::marker::Send + 'static>(
-        stream: impl Stream<Item = T> + std::marker::Send + 'static,
+    pub async fn spawn<T: Clone + std::fmt::Debug + Send + 'static>(
+        stream: impl Stream<Item = T> + Send + 'static,
         buffer: usize,
         name: &'static str,
     ) -> impl Stream<Item = T> {
@@ -28,8 +28,8 @@ impl Actor {
 
 /// The async function for the tokio task to execute
 #[instrument(skip(stream, sender))]
-async fn actor<T: std::marker::Send + std::fmt::Debug + 'static>(
-    stream: impl Stream<Item = T> + std::marker::Send + 'static,
+async fn actor<T: Send + std::fmt::Debug + 'static>(
+    stream: impl Stream<Item = T> + Send + 'static,
     sender: Sender<T>,
     name: &'static str,
 ) {
