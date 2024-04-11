@@ -10,6 +10,9 @@ Here we will go over the different abstractions found in this library.
 #### Stream 
 A stream is an asyncronous iterator. It is any structure that implements the Stream trait. You build up logic on the stream through mapping, filtered, joining, splitting, and so on. As records go through the stream, they will get mutated and filtered. These streams are lazy, and need an executor to actually do work. Without an executor, like an actor, the stream is just a defition that will do nothing.
 
+#### Table
+A table is a streaming data structure that keeps the latest state for each incoming key. The structure can be referenced like a map/dictionary, and also lets the incoming messages flow through through to be used elsewhere.
+
 #### Actor 
 An actor is a `tokio` task that executes a stream. It accepts a input stream and returns an output stream. Actors do the work that is defined on a stream. 
 
