@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use tokio_stream::{Stream, StreamExt};
 
-type RTable<T> = Arc<Mutex<T>>;
+pub type RTable<T> = Arc<Mutex<T>>;
 
 pub struct Table;
 
