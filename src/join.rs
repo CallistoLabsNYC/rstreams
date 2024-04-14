@@ -139,11 +139,10 @@ where
     }
 }
 
-
 pub async fn join_stream_table<S, T>(
     stream: impl Stream<Item = ParsedMessage<S>> + 'static + Send,
-    table: RTable<impl KVStore + Send + 'static>
-) -> impl Stream<Item = (ParsedMessage<S>,Option<T>)>
+    table: RTable<impl KVStore + Send + 'static>,
+) -> impl Stream<Item = (ParsedMessage<S>, Option<T>)>
 where
     S: Clone + Send + Serialize + DeserializeOwned + 'static,
     T: Copy + Clone + std::fmt::Debug + DeserializeOwned + Send + 'static,

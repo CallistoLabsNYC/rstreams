@@ -1,6 +1,5 @@
 use bytes::Bytes;
 use fork_stream::StreamExt as _;
-use nom::AsBytes;
 use rstreams::{
     actor::Actor,
     erase_stream_type, from_bytes, into_flat_stream, to_bytes,
