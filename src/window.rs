@@ -1,27 +1,26 @@
-use std::{collections::HashMap, time::Duration};
-
+use serde::{de::DeserializeOwned, Serialize};
+use std::time::Duration;
 use tokio_stream::{Stream, StreamExt};
 
-use crate::ParsedMessage;
+use crate::{store::KVStore, Dated, ParsedMessage};
 
 pub fn lag_window<A>(
     stream: impl Stream<Item = ParsedMessage<A>> + 'static,
     lag: usize,
+    mut stream_store: impl KVStore,
 ) -> impl Stream<Item = ParsedMessage<Vec<A>>>
 where
-    A: Clone + 'static,
+    A: Clone + Serialize + DeserializeOwned + 'static,
 {
     async_stream::stream! {
-        let mut stream_store = HashMap::new();
-
         tokio::pin!(stream);
 
         while let Some(new_event) = stream.next().await {
-            match stream_store.get_mut(&new_event.key) {
+            match stream_store.get::<Vec<A>>(&new_event.key).unwrap() {
                 None => {
-                    stream_store.insert(new_event.key, vec![new_event.value]);
+                    stream_store.insert(&new_event.key, vec![new_event.clone().value]).unwrap();
                 }
-                Some(events) => {
+                Some(mut events) => {
                     events.push(new_event.clone().value);
                     if events.len() == lag {
                         yield (ParsedMessage {
@@ -31,35 +30,33 @@ where
 
                         events.remove(0);
                     }
+                    stream_store.insert(&new_event.key, events).unwrap();
                 }
             }
         }
     }
 }
 
-pub fn tumbling_window<A, F>(
+pub fn tumbling_window<A>(
     stream: impl Stream<Item = ParsedMessage<A>> + 'static,
     s: Duration,
-    timestamp_accessor: F,
+    mut stream_store: impl KVStore,
 ) -> impl Stream<Item = ParsedMessage<Vec<A>>>
 where
-    F: (Fn(&A) -> i64),
-    A: Clone + 'static,
+    A: Clone + Dated + Serialize + DeserializeOwned + 'static,
 {
     async_stream::stream! {
-        let mut stream_store = HashMap::new();
-
         tokio::pin!(stream);
 
         while let Some(new_event) = stream.next().await {
-            match stream_store.get_mut(&new_event.key) {
+            match stream_store.get::<Vec<A>>(&new_event.key).unwrap() {
                 None => {
-                    stream_store.insert(new_event.key, vec![new_event.value]);
+                    stream_store.insert(&new_event.key, vec![new_event.clone().value]).unwrap();
                 }
-                Some(events) => {
+                Some(mut events) => {
                     if !events.is_empty() {
-                        let earliest_window_index = timestamp_accessor(&events[0]) / (s.as_millis() as i64);
-                        let latest_window_index = timestamp_accessor(&new_event.value) / (s.as_millis() as i64);
+                        let earliest_window_index = events[0].timestamp() / (s.as_millis() as i64);
+                        let latest_window_index = new_event.value.timestamp() / (s.as_millis() as i64);
                         // if we have left the window
                         if earliest_window_index != latest_window_index {
                             // produce our array of fields in the window
@@ -83,6 +80,8 @@ where
                         }
                     }
                     events.push(new_event.clone().value);
+
+                    stream_store.insert(&new_event.key, events).unwrap();
                 }
             }
         }
@@ -90,40 +89,37 @@ where
 }
 
 #[must_use = "stream does nothing by itself"]
-pub fn hopping_window<A, F>(
+pub fn hopping_window<A>(
     stream: impl Stream<Item = ParsedMessage<A>> + 'static,
     s: Duration,
     h: Duration,
-    timestamp_accessor: F,
+    mut stream_store: impl KVStore,
+    mut time_store: impl KVStore,
 ) -> impl Stream<Item = ParsedMessage<(i64, Vec<A>)>>
 where
-    F: (Fn(&A) -> i64),
-    A: Clone + 'static,
+    A: Clone + Dated + Serialize + DeserializeOwned + 'static,
 {
     async_stream::stream! {
-        let mut stream_store = HashMap::new();
-        let mut time_store = HashMap::new();
-
         tokio::pin!(stream);
 
         while let Some(new_event) = stream.next().await {
             // tracing::info!("Incoming {}", timestamp_accessor(&new_event.value));
-            match stream_store.get_mut(&new_event.key) {
+            match stream_store.get::<Vec<A>>(&new_event.key).unwrap() {
                 None => {
                     // tracing::info!("Initializing");
-                    stream_store.insert(new_event.key, vec![new_event.value]);
+                    stream_store.insert(&new_event.key, vec![new_event.value]).unwrap();
                 }
-                Some(events) => {
+                Some(mut events) => {
                     // tracing::info!("len {}", events.len());
                     events.push(new_event.clone().value);
                     if events.len() > 1 {
-                        let mut working_window_time = match time_store.get(&new_event.key) {
-                            None => timestamp_accessor(&events[0]),
-                            Some(working_window_time) => *working_window_time,
+                        let mut working_window_time = match time_store.get::<i64>(&new_event.key).unwrap() {
+                            None => events[0].timestamp(),
+                            Some(working_window_time) => working_window_time,
                         };
 
                         let earliest_window_index = working_window_time / (s.as_millis() as i64);
-                        let latest_event_time = timestamp_accessor(&new_event.value);
+                        let latest_event_time = new_event.value.timestamp();
                         let latest_window_index = latest_event_time / (s.as_millis() as i64);
 
                         // if we have left the window
@@ -137,7 +133,7 @@ where
                                 // tracing::info!("active window {} to {}", working_window_time, working_window_time + (s.as_millis() as i64));
                                 // events.sort_by(|a, b| timestamp_accessor(a).cmp(&timestamp_accessor(b)));
                                 let events_in_window = events.iter().filter(|event| {
-                                    let event_time = timestamp_accessor(event);
+                                    let event_time = event.timestamp();
                                     // tracing::info!("{} is {}",
                                     //     event_time,
                                     //     event_time >= working_window_time && event_time < working_window_time + (s.as_millis() as i64)
@@ -159,15 +155,17 @@ where
                                 // keep anything that could be in the next window
                                 // tracing::info!("keeping above {time}");
                                 events.retain(|event| {
-                                    let event_time = timestamp_accessor(event);
+                                    let event_time = event.timestamp();
                                     // tracing::info!("{} is {}", event_time, event_time >= working_window_time);
                                     event_time >= working_window_time
                                 });
                             }
                         }
 
-                        time_store.insert(new_event.key, working_window_time);
+                        time_store.insert(&new_event.key, working_window_time).unwrap();
                     }
+
+                    stream_store.insert(&new_event.key, events).unwrap();
                 }
             }
         }
@@ -177,6 +175,7 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::{collections::HashMap, time::Duration};
 
     // #[tokio::test]
     // async fn tumbling() {
@@ -214,6 +213,12 @@ mod test {
     //     // assert_eq!(windowed.next().await, Some(to_messages(vec![13,14,11,11])));
     // }
 
+    impl Dated for i64 {
+        fn timestamp(&self) -> i64 {
+            *self
+        }
+    }
+
     #[tokio::test]
     async fn tumbling_as_hopping() {
         let stream = futures::stream::iter(vec![
@@ -238,7 +243,8 @@ mod test {
             stream,
             Duration::from_millis(3),
             Duration::from_millis(3),
-            |a| *a,
+            HashMap::new(),
+            HashMap::new(),
         );
         tokio::pin!(windowed);
 
@@ -280,7 +286,8 @@ mod test {
             stream,
             Duration::from_millis(3),
             Duration::from_millis(1),
-            |a| *a,
+            HashMap::new(),
+            HashMap::new(),
         );
         tokio::pin!(windowed);
 

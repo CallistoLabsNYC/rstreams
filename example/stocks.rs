@@ -3,9 +3,9 @@ use fork_stream::StreamExt as _;
 use nom::AsBytes;
 use rstreams::{
     actor::Actor,
-    from_bytes, into_flat_stream, to_bytes,
+    erase_stream_type, from_bytes, into_flat_stream, to_bytes,
     window::{hopping_window, lag_window},
-    ParsedMessage,
+    Dated, ParsedMessage,
 };
 use samsa::prelude::{ConsumerBuilder, ProduceMessage, ProducerBuilder};
 use serde::{Deserialize, Serialize};
@@ -62,6 +62,12 @@ impl Candle {
         } else {
             Color::Red
         }
+    }
+}
+
+impl Dated for Candle {
+    fn timestamp(&self) -> i64 {
+        self.timestamp
     }
 }
 
@@ -129,7 +135,6 @@ async fn main() -> Result<(), ()> {
     let _buffer_size = 100000;
 
     let stocks_topic = "price-updates".to_string();
-    let _news_topic = "market-news".to_string();
 
     let consumer_stream = ConsumerBuilder::new(
         bootstrap_addrs.clone(),
@@ -139,22 +144,21 @@ async fn main() -> Result<(), ()> {
     .map_err(|err| tracing::error!("{:?}", err))?
     .build()
     .into_stream();
-    // .throttle(Duration::from_secs(1));
 
     // read in 1 batch at a time
-    let stock_batches = Actor::spawn(consumer_stream, 1, "stocks-consumer")
-        .await
-        .to_stream();
+    let stock_batches = Actor::spawn(consumer_stream, 10, "stocks-consumer").await;
 
-    let parser_stream = into_flat_stream(stock_batches).map(|record| ParsedMessage::<Candle> {
-        key: std::str::from_utf8(record.key.as_bytes())
-            .unwrap()
-            .to_owned(),
-        value: from_bytes::<Candle>(record.value).unwrap(),
-    });
+    let parser_stream = into_flat_stream(stock_batches)
+        .map(|record| ParsedMessage::<Candle> {
+            key: std::str::from_utf8(record.key.as_bytes())
+                .unwrap()
+                .to_owned(),
+            value: from_bytes::<Candle>(record.value).unwrap(),
+        })
+        .fork();
 
     let timeframes = vec![
-        // (60 * 15, "15min-candles"),
+        (60 * 15, "15min-candles"),
         (60 * 30, "30min-candles"),
         (60 * 60, "1hr-candles"),
         (60 * 60 * 4, "4hr-candles"),
@@ -166,62 +170,41 @@ async fn main() -> Result<(), ()> {
         (60 * 60 * 24 * 365, "year-candles"),
     ];
 
-    let (seconds, topic) = (60 * 15, "15min-candles");
-
-    let mut stream = Actor::spawn(
-        hopping_window(
-            parser_stream,
-            Duration::from_secs(seconds),
-            Duration::from_secs(seconds),
-            |e| e.timestamp,
-        )
-        .map(|message| aggregate_candles(message.key, message.value.0, message.value.1))
-        .filter(|message| message.value.volume != 0.0),
-        1,
-        topic,
-    )
-    .await
-    .to_stream()
-    .fork();
-
-    ProducerBuilder::new(bootstrap_addrs.clone(), vec![topic.to_string()])
-        .await
-        .map_err(|err| tracing::error!("{:?}", err))?
-        .build_from_stream(
-            lag_window(stream.clone(), 2)
-                .map(|message| classify_candle_strat(message.key, message.value))
-                .map(|message| ProduceMessage {
-                    key: Some(Bytes::from(message.key)),
-                    value: Some(to_bytes(message.value).unwrap()),
-                    topic: topic.to_string(),
-                    partition_id: 0,
-                    headers: vec![],
-                }),
-        )
-        .await;
+    // solid type-fu. This is so that we can use a loop to build up our pipeline
+    // rather than explicit variables for each timeframe
+    let mut stream = erase_stream_type(parser_stream).fork();
 
     for (seconds, topic) in timeframes {
-        stream = Actor::spawn(
-            hopping_window(
-                stream,
-                Duration::from_secs(seconds),
-                Duration::from_secs(seconds),
-                |e| e.timestamp,
+        stream = erase_stream_type(
+            Actor::spawn(
+                hopping_window(
+                    stream,
+                    Duration::from_secs(seconds),
+                    Duration::from_secs(seconds),
+                    HashMap::new(),
+                    HashMap::new(),
+                )
+                .filter_map(|message| {
+                    let message = aggregate_candles(message.key, message.value.0, message.value.1);
+                    if message.value.volume != 0.0 {
+                        Some(message)
+                    } else {
+                        None
+                    }
+                }),
+                1000,
+                topic,
             )
-            .map(|message| aggregate_candles(message.key, message.value.0, message.value.1))
-            .filter(|message| message.value.volume != 0.0),
-            1,
-            topic,
+            .await
+            .fork(),
         )
-        .await
-        .to_stream()
         .fork();
 
         ProducerBuilder::new(bootstrap_addrs.clone(), vec![topic.to_string()])
             .await
             .map_err(|err| tracing::error!("{:?}", err))?
             .build_from_stream(
-                lag_window(stream.clone(), 2)
+                lag_window(stream.clone(), 2, HashMap::new())
                     .map(|message| classify_candle_strat(message.key, message.value))
                     .map(|message| ProduceMessage {
                         key: Some(Bytes::from(message.key)),
@@ -234,11 +217,12 @@ async fn main() -> Result<(), ()> {
             .await;
     }
 
-    tokio::pin!(stream);
+    // tokio::pin!(stream);
 
-    while let Some(message) = stream.next().await {
-        tracing::info!("main! {:?}", message);
-    }
+    // while let Some(message) = stream.next().await {
+    //     tracing::info!("main! {:?}", message);
+    // }
+    tokio::time::sleep(tokio::time::Duration::MAX).await;
 
     tracing::info!("Main out!");
 
