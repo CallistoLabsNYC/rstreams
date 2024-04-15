@@ -146,7 +146,7 @@ async fn main() -> Result<(), ()> {
     .into_stream();
 
     // read in 1 batch at a time
-    let stock_batches = Actor::spawn(consumer_stream, 1, "stocks-consumer").await;
+    let stock_batches = Actor::spawn(consumer_stream, 10, "stocks-consumer").await;
 
     let parser_stream = into_flat_stream(stock_batches)
         .map(|record| ParsedMessage::<Candle> {
@@ -192,7 +192,7 @@ async fn main() -> Result<(), ()> {
                         None
                     }
                 }),
-                1,
+                1000,
                 topic,
             )
             .await

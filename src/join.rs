@@ -5,7 +5,7 @@ use std::time::Duration;
 use async_stream::stream;
 use tokio_stream::{Stream, StreamExt};
 
-use crate::{store::KVStore, within_window, ParsedMessage};
+use crate::{store::KVStore, table::RTable, within_window, ParsedMessage};
 
 enum Either<L, R> {
     Left(L),
@@ -137,6 +137,22 @@ where
             }
         }
     }
+}
+
+pub async fn join_stream_table<S, T>(
+    stream: impl Stream<Item = ParsedMessage<S>> + 'static + Send,
+    table: RTable<impl KVStore + Send + 'static>,
+) -> impl Stream<Item = (ParsedMessage<S>, Option<T>)>
+where
+    S: Clone + Send + Serialize + DeserializeOwned + 'static,
+    T: Copy + Clone + std::fmt::Debug + DeserializeOwned + Send + 'static,
+{
+    let table = table.clone();
+    stream.map(move |m| {
+        let value = table.lock().unwrap().get(&m.key).unwrap();
+
+        (m, value)
+    })
 }
 
 #[cfg(test)]

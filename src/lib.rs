@@ -1,6 +1,7 @@
 pub mod actor;
 pub mod join;
 pub mod store;
+pub mod table;
 pub mod window;
 
 use bytes::Bytes;
