@@ -1,4 +1,11 @@
-use crate::{actor::Actor, store::KVStore, ParsedMessage};
+//! Changelog stream
+
+use crate::{
+    actor::Actor,
+    error::{Error, Result},
+    store::KVStore,
+    ParsedMessage,
+};
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use tokio_stream::{Stream, StreamExt};
@@ -13,7 +20,7 @@ impl Table {
         stream: impl Stream<Item = ParsedMessage<V>> + Send + 'static,
         store: impl KVStore + Send + 'static,
     ) -> (
-        impl Stream<Item = ParsedMessage<V>> + Send + 'static,
+        impl Stream<Item = Result<ParsedMessage<V>>> + Send + 'static,
         RTable<impl KVStore + Send + 'static>,
     )
     where
@@ -24,10 +31,12 @@ impl Table {
         let stream = stream.map(move |message| {
             table
                 .lock()
-                .unwrap()
-                .insert(&message.key, message.value)
-                .unwrap();
-            message
+                .map_err(|err| {
+                    tracing::error!("{:?}", err);
+                    Error::MutexPoisoned
+                })?
+                .insert(&message.key, message.value)?;
+            Ok(message)
         });
         let stream = Actor::spawn(stream, 1, name).await;
         (stream, t)

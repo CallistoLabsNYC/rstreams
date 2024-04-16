@@ -1,3 +1,5 @@
+//! Execute streams in asynchronous Tokio tasks.
+
 use async_stream::stream;
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::{Stream, StreamExt};
@@ -41,8 +43,6 @@ async fn actor<T: Send + std::fmt::Debug + 'static>(
             // This will occur whenever the sender is deallocated
             tracing::warn!("Stream channel has been hung up");
             return;
-        } else {
-            // tracing::info!("Sending message to output channel")
         }
     }
     tracing::info!("Actor finished stream");

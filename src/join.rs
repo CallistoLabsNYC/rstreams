@@ -1,4 +1,5 @@
-// use std::collections::HashMap;
+//! Merge streams into one based on timeframes.
+
 use serde::{de::DeserializeOwned, Serialize};
 use std::time::Duration;
 

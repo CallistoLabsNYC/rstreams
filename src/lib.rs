@@ -1,4 +1,5 @@
 pub mod actor;
+pub mod error;
 pub mod join;
 pub mod store;
 pub mod table;

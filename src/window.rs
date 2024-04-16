@@ -1,3 +1,5 @@
+//! Divide stream into time based segments.
+
 use serde::{de::DeserializeOwned, Serialize};
 use std::time::Duration;
 use tokio_stream::{Stream, StreamExt};
