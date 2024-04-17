@@ -5,9 +5,18 @@ use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::{Stream, StreamExt};
 use tracing::instrument;
 
+/// An Actor is an asynchronous Tokio task that executes a stream.
+/// 
+/// The buffer size relates to how many executed messages it can put in
+/// its output box. If the buffer is 10, the Actor will process 10 messages
+/// and then wait until a message is read from the output.
 pub struct Actor;
 
 impl Actor {
+    /// Generate an Actor given a stream to execute, a buffer size,
+    /// and a name for logging purposes.
+    /// 
+    /// This will spawn an async tokio task.
     pub async fn spawn<T: Clone + std::fmt::Debug + Send + 'static>(
         stream: impl Stream<Item = T> + Send + 'static,
         buffer: usize,
