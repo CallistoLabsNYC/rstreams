@@ -13,17 +13,24 @@ A stream is an asyncronous iterator. It is any structure that implements the Str
 #### Table
 A table is a streaming data structure that keeps the latest state for each incoming key. The structure can be referenced like a map/dictionary, and also lets the incoming messages flow through through to be used elsewhere.
 
+![table](img/table.png)
+
 #### Actor 
 An actor is a `tokio` task that executes a stream. It accepts a input stream and returns an output stream. Actors do the work that is defined on a stream. 
 
 These are useful when you want to build complex stream processing pipelines. One use case is to break up processing into multiple steps so that you can do things with the partial results.
 
+![actor](img/actor.png)
+
 #### Sink
 Sinks accept streams and dump the data elsewhere. Typically these are where the flow of the data in an rstreams program terminate.
+
+![sink](img/sink.png)
 
 #### Source
 Sources get data from elsewhere and return that data in a stream. Typically these are at the beginning of flow in an rstreams program.
 
+![source](img/source.png)
 
 ## Current supported features
 
