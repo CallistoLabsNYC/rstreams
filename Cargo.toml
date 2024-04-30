@@ -30,8 +30,12 @@ tracing-subscriber = "0.3.18"
 kafka = ["samsa"]
 
 [[example]]
-name = "loader"
-path = "example/loader.rs"
+name = "shakespeare_consumer"
+path = "example/shakespeare_consumer.rs"
+
+[[example]]
+name = "shakespeare_loader"
+path = "example/shakespeare_loader.rs"
 
 [[example]]
 name = "stocks"
